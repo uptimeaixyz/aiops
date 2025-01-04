@@ -1,0 +1,15 @@
+# config.yaml
+task: "Create a minimal droplet with terraform"
+processor:
+  port: 8080
+  ai:
+    provider: "antrophic"
+    model: "gpt-4"
+    api_key: "${AI_API_KEY}"
+
+# executor:
+#   port: 9090
+#   github:
+#     token: "${GITHUB_TOKEN}"
+#     repository: "owner/repo"
+#     branch: "main"
