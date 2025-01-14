@@ -1,0 +1,4 @@
+anthropic_api_key: ""
+grpc_server_addr: "localhost:50051"
+server:
+  port: 8080
