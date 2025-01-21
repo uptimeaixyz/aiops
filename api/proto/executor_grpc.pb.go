@@ -19,9 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Executor_Plan_FullMethodName    = "/executor.Executor/Plan"
-	Executor_Apply_FullMethodName   = "/executor.Executor/Apply"
-	Executor_Destroy_FullMethodName = "/executor.Executor/Destroy"
+	Executor_AppendCode_FullMethodName      = "/executor.Executor/AppendCode"
+	Executor_Plan_FullMethodName            = "/executor.Executor/Plan"
+	Executor_Apply_FullMethodName           = "/executor.Executor/Apply"
+	Executor_Destroy_FullMethodName         = "/executor.Executor/Destroy"
+	Executor_GetStateList_FullMethodName    = "/executor.Executor/GetStateList"
+	Executor_ClearCode_FullMethodName       = "/executor.Executor/ClearCode"
+	Executor_CreateContext_FullMethodName   = "/executor.Executor/CreateContext"
+	Executor_DeleteContext_FullMethodName   = "/executor.Executor/DeleteContext"
+	Executor_CreateWorkspace_FullMethodName = "/executor.Executor/CreateWorkspace"
+	Executor_DeleteWorkspace_FullMethodName = "/executor.Executor/DeleteWorkspace"
+	Executor_AddProviders_FullMethodName    = "/executor.Executor/AddProviders"
 )
 
 // ExecutorClient is the client API for Executor service.
@@ -30,12 +38,28 @@ const (
 //
 // The Executor service definition.
 type ExecutorClient interface {
+	// Appends code to the Terraform configuration.
+	AppendCode(ctx context.Context, in *AppendCodeRequest, opts ...grpc.CallOption) (*AppendCodeResponse, error)
 	// Generates a Terraform plan and returns the result.
 	Plan(ctx context.Context, in *PlanRequest, opts ...grpc.CallOption) (*PlanResponse, error)
 	// Applies the Terraform plan and returns the execution result.
 	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 	// Destroys the Terraform-managed infrastructure and returns the result.
 	Destroy(ctx context.Context, in *DestroyRequest, opts ...grpc.CallOption) (*DestroyResponse, error)
+	// Retrieves the Terraform state list.
+	GetStateList(ctx context.Context, in *GetStateListRequest, opts ...grpc.CallOption) (*GetStateListResponse, error)
+	// Clears the Terraform files.
+	ClearCode(ctx context.Context, in *ClearCodeRequest, opts ...grpc.CallOption) (*ClearCodeResponse, error)
+	// Creates a new context.
+	CreateContext(ctx context.Context, in *CreateContextRequest, opts ...grpc.CallOption) (*CreateContextResponse, error)
+	// Deletes a context.
+	DeleteContext(ctx context.Context, in *DeleteContextRequest, opts ...grpc.CallOption) (*DeleteContextResponse, error)
+	// Creates a workspace within a context.
+	CreateWorkspace(ctx context.Context, in *CreateWorkspaceRequest, opts ...grpc.CallOption) (*CreateWorkspaceResponse, error)
+	// Deletes a workspace within a context.
+	DeleteWorkspace(ctx context.Context, in *DeleteWorkspaceRequest, opts ...grpc.CallOption) (*DeleteWorkspaceResponse, error)
+	// Adds providers to the Terraform configuration.
+	AddProviders(ctx context.Context, in *AddProvidersRequest, opts ...grpc.CallOption) (*AddProvidersResponse, error)
 }
 
 type executorClient struct {
@@ -44,6 +68,16 @@ type executorClient struct {
 
 func NewExecutorClient(cc grpc.ClientConnInterface) ExecutorClient {
 	return &executorClient{cc}
+}
+
+func (c *executorClient) AppendCode(ctx context.Context, in *AppendCodeRequest, opts ...grpc.CallOption) (*AppendCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AppendCodeResponse)
+	err := c.cc.Invoke(ctx, Executor_AppendCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *executorClient) Plan(ctx context.Context, in *PlanRequest, opts ...grpc.CallOption) (*PlanResponse, error) {
@@ -76,18 +110,104 @@ func (c *executorClient) Destroy(ctx context.Context, in *DestroyRequest, opts .
 	return out, nil
 }
 
+func (c *executorClient) GetStateList(ctx context.Context, in *GetStateListRequest, opts ...grpc.CallOption) (*GetStateListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetStateListResponse)
+	err := c.cc.Invoke(ctx, Executor_GetStateList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) ClearCode(ctx context.Context, in *ClearCodeRequest, opts ...grpc.CallOption) (*ClearCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClearCodeResponse)
+	err := c.cc.Invoke(ctx, Executor_ClearCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) CreateContext(ctx context.Context, in *CreateContextRequest, opts ...grpc.CallOption) (*CreateContextResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateContextResponse)
+	err := c.cc.Invoke(ctx, Executor_CreateContext_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) DeleteContext(ctx context.Context, in *DeleteContextRequest, opts ...grpc.CallOption) (*DeleteContextResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteContextResponse)
+	err := c.cc.Invoke(ctx, Executor_DeleteContext_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) CreateWorkspace(ctx context.Context, in *CreateWorkspaceRequest, opts ...grpc.CallOption) (*CreateWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateWorkspaceResponse)
+	err := c.cc.Invoke(ctx, Executor_CreateWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) DeleteWorkspace(ctx context.Context, in *DeleteWorkspaceRequest, opts ...grpc.CallOption) (*DeleteWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteWorkspaceResponse)
+	err := c.cc.Invoke(ctx, Executor_DeleteWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *executorClient) AddProviders(ctx context.Context, in *AddProvidersRequest, opts ...grpc.CallOption) (*AddProvidersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddProvidersResponse)
+	err := c.cc.Invoke(ctx, Executor_AddProviders_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ExecutorServer is the server API for Executor service.
 // All implementations must embed UnimplementedExecutorServer
 // for forward compatibility.
 //
 // The Executor service definition.
 type ExecutorServer interface {
+	// Appends code to the Terraform configuration.
+	AppendCode(context.Context, *AppendCodeRequest) (*AppendCodeResponse, error)
 	// Generates a Terraform plan and returns the result.
 	Plan(context.Context, *PlanRequest) (*PlanResponse, error)
 	// Applies the Terraform plan and returns the execution result.
 	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
 	// Destroys the Terraform-managed infrastructure and returns the result.
 	Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error)
+	// Retrieves the Terraform state list.
+	GetStateList(context.Context, *GetStateListRequest) (*GetStateListResponse, error)
+	// Clears the Terraform files.
+	ClearCode(context.Context, *ClearCodeRequest) (*ClearCodeResponse, error)
+	// Creates a new context.
+	CreateContext(context.Context, *CreateContextRequest) (*CreateContextResponse, error)
+	// Deletes a context.
+	DeleteContext(context.Context, *DeleteContextRequest) (*DeleteContextResponse, error)
+	// Creates a workspace within a context.
+	CreateWorkspace(context.Context, *CreateWorkspaceRequest) (*CreateWorkspaceResponse, error)
+	// Deletes a workspace within a context.
+	DeleteWorkspace(context.Context, *DeleteWorkspaceRequest) (*DeleteWorkspaceResponse, error)
+	// Adds providers to the Terraform configuration.
+	AddProviders(context.Context, *AddProvidersRequest) (*AddProvidersResponse, error)
 	mustEmbedUnimplementedExecutorServer()
 }
 
@@ -98,6 +218,9 @@ type ExecutorServer interface {
 // pointer dereference when methods are called.
 type UnimplementedExecutorServer struct{}
 
+func (UnimplementedExecutorServer) AppendCode(context.Context, *AppendCodeRequest) (*AppendCodeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendCode not implemented")
+}
 func (UnimplementedExecutorServer) Plan(context.Context, *PlanRequest) (*PlanResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Plan not implemented")
 }
@@ -106,6 +229,27 @@ func (UnimplementedExecutorServer) Apply(context.Context, *ApplyRequest) (*Apply
 }
 func (UnimplementedExecutorServer) Destroy(context.Context, *DestroyRequest) (*DestroyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Destroy not implemented")
+}
+func (UnimplementedExecutorServer) GetStateList(context.Context, *GetStateListRequest) (*GetStateListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStateList not implemented")
+}
+func (UnimplementedExecutorServer) ClearCode(context.Context, *ClearCodeRequest) (*ClearCodeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClearCode not implemented")
+}
+func (UnimplementedExecutorServer) CreateContext(context.Context, *CreateContextRequest) (*CreateContextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateContext not implemented")
+}
+func (UnimplementedExecutorServer) DeleteContext(context.Context, *DeleteContextRequest) (*DeleteContextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteContext not implemented")
+}
+func (UnimplementedExecutorServer) CreateWorkspace(context.Context, *CreateWorkspaceRequest) (*CreateWorkspaceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateWorkspace not implemented")
+}
+func (UnimplementedExecutorServer) DeleteWorkspace(context.Context, *DeleteWorkspaceRequest) (*DeleteWorkspaceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteWorkspace not implemented")
+}
+func (UnimplementedExecutorServer) AddProviders(context.Context, *AddProvidersRequest) (*AddProvidersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddProviders not implemented")
 }
 func (UnimplementedExecutorServer) mustEmbedUnimplementedExecutorServer() {}
 func (UnimplementedExecutorServer) testEmbeddedByValue()                  {}
@@ -126,6 +270,24 @@ func RegisterExecutorServer(s grpc.ServiceRegistrar, srv ExecutorServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Executor_ServiceDesc, srv)
+}
+
+func _Executor_AppendCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppendCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).AppendCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_AppendCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).AppendCode(ctx, req.(*AppendCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Executor_Plan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -182,6 +344,132 @@ func _Executor_Destroy_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Executor_GetStateList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStateListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).GetStateList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_GetStateList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).GetStateList(ctx, req.(*GetStateListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_ClearCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).ClearCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_ClearCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).ClearCode(ctx, req.(*ClearCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_CreateContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateContextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).CreateContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_CreateContext_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).CreateContext(ctx, req.(*CreateContextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_DeleteContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteContextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).DeleteContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_DeleteContext_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).DeleteContext(ctx, req.(*DeleteContextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_CreateWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).CreateWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_CreateWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).CreateWorkspace(ctx, req.(*CreateWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_DeleteWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).DeleteWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_DeleteWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).DeleteWorkspace(ctx, req.(*DeleteWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Executor_AddProviders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddProvidersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExecutorServer).AddProviders(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Executor_AddProviders_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExecutorServer).AddProviders(ctx, req.(*AddProvidersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Executor_ServiceDesc is the grpc.ServiceDesc for Executor service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -189,6 +477,10 @@ var Executor_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "executor.Executor",
 	HandlerType: (*ExecutorServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AppendCode",
+			Handler:    _Executor_AppendCode_Handler,
+		},
 		{
 			MethodName: "Plan",
 			Handler:    _Executor_Plan_Handler,
@@ -200,6 +492,34 @@ var Executor_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Destroy",
 			Handler:    _Executor_Destroy_Handler,
+		},
+		{
+			MethodName: "GetStateList",
+			Handler:    _Executor_GetStateList_Handler,
+		},
+		{
+			MethodName: "ClearCode",
+			Handler:    _Executor_ClearCode_Handler,
+		},
+		{
+			MethodName: "CreateContext",
+			Handler:    _Executor_CreateContext_Handler,
+		},
+		{
+			MethodName: "DeleteContext",
+			Handler:    _Executor_DeleteContext_Handler,
+		},
+		{
+			MethodName: "CreateWorkspace",
+			Handler:    _Executor_CreateWorkspace_Handler,
+		},
+		{
+			MethodName: "DeleteWorkspace",
+			Handler:    _Executor_DeleteWorkspace_Handler,
+		},
+		{
+			MethodName: "AddProviders",
+			Handler:    _Executor_AddProviders_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

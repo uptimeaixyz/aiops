@@ -18,7 +18,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// Configuration struct
 type Config struct {
 	AnthropicAPIKey string `yaml:"anthropic_api_key"`
 	GRPCServerAddr  string `yaml:"grpc_server_addr"`
@@ -27,22 +26,20 @@ type Config struct {
 	} `yaml:"server"`
 }
 
-// Service struct to hold dependencies
 type Service struct {
 	anthropicClient *anthropic.Client
 	executorClient  pb.ExecutorClient
 	config          Config
 }
 
-// Request structure for the HTTP API
 type TerraformRequest struct {
 	Description string            `json:"description"`
+	Context     string           `json:"context"`
 	Workspace   string            `json:"workspace"`
-	Action      string            `json:"action"` // "plan", "apply", or "destroy"
+	Action      string           `json:"action"` // "plan", "apply", or "destroy"
 	Variables   map[string]string `json:"variables,omitempty"`
 }
 
-// Response structure for the HTTP API
 type TerraformResponse struct {
 	Success bool   `json:"success"`
 	Code    string `json:"code,omitempty"`
@@ -50,20 +47,16 @@ type TerraformResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// NewService creates a new instance of the service
 func NewService(config Config) (*Service, error) {
-	// Initialize Anthropic client
 	anthropicClient := anthropic.NewClient(
 		option.WithAPIKey(config.AnthropicAPIKey),
 	)
 
-	// Set up gRPC connection
 	conn, err := grpc.Dial(config.GRPCServerAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to gRPC server: %v", err)
 	}
 
-	// Create executor client
 	executorClient := pb.NewExecutorClient(conn)
 
 	return &Service{
@@ -73,24 +66,76 @@ func NewService(config Config) (*Service, error) {
 	}, nil
 }
 
+func (s *Service) ensureContextAndWorkspace(ctx context.Context, contextName, workspace string) error {
+	// Create context if it doesn't exist
+	_, err := s.executorClient.CreateContext(ctx, &pb.CreateContextRequest{
+		Context: contextName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create context: %v", err)
+	}
+
+	// Create workspace if it doesn't exist
+	_, err = s.executorClient.CreateWorkspace(ctx, &pb.CreateWorkspaceRequest{
+		Context:   contextName,
+		Workspace: workspace,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create workspace: %v", err)
+	}
+
+	return nil
+}
+
+// func (s *Service) configureProviders(ctx context.Context, contextName, workspace string) error {
+// 	// Configure DigitalOcean provider
+// 	_, err := s.executorClient.AddProviders(ctx, &pb.AddProvidersRequest{
+// 		Context:   contextName,
+// 		Workspace: workspace,
+// 		Providers: []*pb.Provider{
+// 			{
+// 				Name:    "digitalocean",
+// 				Source:  "digitalocean/digitalocean",
+// 				Version: "~> 2.0",
+// 			},
+// 		},
+// 	})
+// 	return err
+// }
+
 func (s *Service) generateTerraformCode(ctx context.Context, description string) (string, error) {
-	prompt := fmt.Sprintf(`You are a DevOps engineer. OUTPUT ONLY TERRAFORM CODE, NO OTHER EXPLANATIONS.
+	prompt := fmt.Sprintf(`You are a DevOps engineer specialized in writing Terraform code. You will receive an infrastructure-related task and must output ONLY the Terraform resource and output blocks - nothing else.
 
-Create Terraform code for DigitalOcean based on this description:
+Task description:
 %s
-The task:
-- Create digitalocean droplet, frankfurt, 1gb ram, 1 cpu
+
 Requirements:
-Generate Terraform resource and output blocks ONLY for DigitalOcean infrastructure. DO NOT include any terraform blocks, provider configurations, or variable declarations - they are already set up. The environment already has:
+1. If the task is NOT related to infrastructure provisioning, return an empty response
+2. If the task IS infrastructure-related:
+   - Generate ONLY resource and output blocks
+   - DO NOT include:
+     * provider configurations
+     * terraform blocks
+     * variable declarations
+     * locals
+     * data sources (unless specifically required)
+   - DO NOT include any explanations or comments
+   - DO NOT include code block markers (``terraform or ``)
 
-DigitalOcean provider configured
-Backend configuration
-do_token variable
-OUTPUT ONLY the resource and output blocks that define the infrastructure."
+Example task: "Create a droplet in Frankfurt region with 1GB RAM"
+Example output:
+resource "digitalocean_droplet" "web" {
+  name   = "web-1"
+  region = "fra1"
+  size   = "s-1vcpu-1gb"
+  image  = "ubuntu-20-04-x64"
+}
 
-Then after this prompt, you would add the specific infrastructure requirements like "Create a droplet in Frankfurt" or "Create a Kubernetes cluster with 3 nodes
+output "droplet_ip" {
+  value = digitalocean_droplet.web.ipv4_address
+}
 
-OUTPUT ONLY TERRAFORM CODE, NO OTHER EXPLANATIONS`, description)
+Your response should contain ONLY Terraform code, nothing else.`, description)
 
 	message, err := s.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.F(anthropic.ModelClaude3_5SonnetLatest),
@@ -108,22 +153,51 @@ OUTPUT ONLY TERRAFORM CODE, NO OTHER EXPLANATIONS`, description)
 		code += content.Text
 	}
 
-	// Clean up the code
 	code = strings.TrimPrefix(code, "```hcl")
 	code = strings.TrimPrefix(code, "```terraform")
 	code = strings.TrimSuffix(code, "```")
 	code = strings.TrimSpace(code)
 
-	// Don't escape newlines or quotes - they should be preserved as-is for Terraform
 	return code, nil
 }
 
-func (s *Service) executeTerraformAction(ctx context.Context, action string, code string, workspace string) (*TerraformResponse, error) {
+func (s *Service) executeTerraformAction(ctx context.Context, action, code, contextName, workspace string) (*TerraformResponse, error) {
+	// First ensure context and workspace exist
+	if err := s.ensureContextAndWorkspace(ctx, contextName, workspace); err != nil {
+		return nil, err
+	}
+
+	// Clear any existing code
+	_, err := s.executorClient.ClearCode(ctx, &pb.ClearCodeRequest{
+		Context:   contextName,
+		Workspace: workspace,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to clear existing code: %v", err)
+	}
+
+	// // Configure providers
+	// if err := s.configureProviders(ctx, contextName, workspace); err != nil {
+	// 	return nil, fmt.Errorf("failed to configure providers: %v", err)
+	// }
+
+	// Append new code if provided
+	if code != "" {
+		_, err = s.executorClient.AppendCode(ctx, &pb.AppendCodeRequest{
+			Context:   contextName,
+			Workspace: workspace,
+			Code:      code,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to append code: %v", err)
+		}
+	}
+
 	switch action {
 	case "plan":
 		resp, err := s.executorClient.Plan(ctx, &pb.PlanRequest{
+			Context:   contextName,
 			Workspace: workspace,
-			Code:      code,
 		})
 		if err != nil {
 			return nil, err
@@ -136,8 +210,8 @@ func (s *Service) executeTerraformAction(ctx context.Context, action string, cod
 
 	case "apply":
 		resp, err := s.executorClient.Apply(ctx, &pb.ApplyRequest{
+			Context:   contextName,
 			Workspace: workspace,
-			Code:      code,
 		})
 		if err != nil {
 			return nil, err
@@ -150,6 +224,7 @@ func (s *Service) executeTerraformAction(ctx context.Context, action string, cod
 
 	case "destroy":
 		resp, err := s.executorClient.Destroy(ctx, &pb.DestroyRequest{
+			Context:   contextName,
 			Workspace: workspace,
 		})
 		if err != nil {
@@ -178,7 +253,9 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Set default action to "plan" if not specified
+	if req.Context == "" {
+		req.Context = "default"
+	}
 	if req.Action == "" {
 		req.Action = "plan"
 	}
@@ -186,7 +263,6 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 	var code string
 	var err error
 
-	// Only generate code for plan and apply actions
 	if req.Action != "destroy" {
 		code, err = s.generateTerraformCode(r.Context(), req.Description)
 		if err != nil {
@@ -195,14 +271,12 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Execute the requested action
-	response, err := s.executeTerraformAction(r.Context(), req.Action, code, req.Workspace)
+	response, err := s.executeTerraformAction(r.Context(), req.Action, code, req.Context, req.Workspace)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute terraform action: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Add the generated code to the response if it exists
 	if code != "" {
 		response.Code = code
 	}
@@ -211,12 +285,9 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
-// LoadConfig loads configuration from a YAML file
 func LoadConfig(filename string) (*Config, error) {
-	// Check environment variables first
 	config := &Config{}
 
-	// Read from file
 	buf, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("error reading config file: %v", err)
@@ -227,7 +298,6 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("error parsing config file: %v", err)
 	}
 
-	// Override with environment variables if they exist
 	if env := os.Getenv("ANTHROPIC_API_KEY"); env != "" {
 		config.AnthropicAPIKey = env
 	}
@@ -235,35 +305,29 @@ func LoadConfig(filename string) (*Config, error) {
 		config.GRPCServerAddr = env
 	}
 
-	// Validate required fields
 	if config.AnthropicAPIKey == "" {
 		return nil, fmt.Errorf("anthropic_api_key is required")
 	}
 	if config.GRPCServerAddr == "" {
-		config.GRPCServerAddr = "localhost:50051" // default value
+		config.GRPCServerAddr = "localhost:50051"
 	}
 	if config.Server.Port == 0 {
-		config.Server.Port = 8080 // default value
+		config.Server.Port = 8080
 	}
 
 	return config, nil
 }
 
 func main() {
-	// Parse command line flags
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
-	// Load configuration
 	config, err := LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	service, err := NewService(Config{
-		AnthropicAPIKey: config.AnthropicAPIKey,
-		GRPCServerAddr:  config.GRPCServerAddr,
-	})
+	service, err := NewService(*config)
 	if err != nil {
 		log.Fatalf("Failed to create service: %v", err)
 	}
@@ -275,3 +339,10 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
+curl -X POST http://localhost:8080/terraform \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Create digitalocean droplet with 1GB RAM in Frankfurt",
+    "context": "segovchik",
+	"workspace": "airdao",
+  }'
