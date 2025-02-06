@@ -3,7 +3,7 @@ module request-processor
 go 1.22.1
 
 require (
-	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.8
+	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.10
 	google.golang.org/grpc v1.69.4
 	google.golang.org/protobuf v1.36.2
 	gopkg.in/yaml.v2 v2.4.0

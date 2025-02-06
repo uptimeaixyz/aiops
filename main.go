@@ -1,22 +1,36 @@
 package main
 
 import (
+	// "bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+
+	// "io"
 	"log"
 	"net/http"
 	"os"
-	"strings"
-
 	pb "request-processor/api/proto"
+	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v2"
 )
+
+type TerraformError struct {
+	Message         string // Full error message
+	TerraformOutput string // Complete Terraform output including plan/apply details
+	Resource        string // Affected resource
+}
+
+type RetryConfig struct {
+	MaxAttempts int
+	Delay       time.Duration
+}
 
 type Config struct {
 	AnthropicAPIKey string `yaml:"anthropic_api_key"`
@@ -26,18 +40,11 @@ type Config struct {
 	} `yaml:"server"`
 }
 
-type Service struct {
-	anthropicClient *anthropic.Client
-	executorClient  pb.ExecutorClient
-	config          Config
-}
-
 type TerraformRequest struct {
-	Description string            `json:"description"`
-	Context     string           `json:"context"`
-	Workspace   string            `json:"workspace"`
-	Action      string           `json:"action"` // "plan", "apply", or "destroy"
-	Variables   map[string]string `json:"variables,omitempty"`
+	Description string `json:"description"`
+	Context     string `json:"context"`
+	Workspace   string `json:"workspace"`
+	Action      string `json:"action"` // "plan", "apply", or "destroy"
 }
 
 type TerraformResponse struct {
@@ -45,6 +52,101 @@ type TerraformResponse struct {
 	Code    string `json:"code,omitempty"`
 	Output  string `json:"output"`
 	Error   string `json:"error,omitempty"`
+}
+
+type Service struct {
+	anthropicClient *anthropic.Client
+	executorClient  pb.ExecutorClient
+	config          Config
+}
+
+func generateModificationPrompt(description string, existingCode string) string {
+	return fmt.Sprintf(`You are a DevOps engineer. There is existing infrastructure that needs modification.
+    
+	Current Infrastructure:
+	%s
+
+	Requested Changes:
+	%s
+
+	Requirements:
+	1. Only modify the resources mentioned in the request
+	2. Keep all other resources unchanged
+	3. Preserve resource names and references
+	4. Use existing naming conventions
+	...`,
+		existingCode,
+		description,
+	)
+}
+
+func generateErrorPrompt(originalDescription string, code string, tfError *TerraformError) string {
+	return fmt.Sprintf(`You are a DevOps engineer. Previous Terraform code generated an error. Please fix and regenerate the code.
+
+	Original Task: %s
+
+	Previous Code:
+	%s
+
+	Terraform Execution Output:
+	%s
+
+	Error:
+	%s
+
+	Requirements:
+	1. Analyze the Terraform execution output and error message
+	2. Fix the issues identified in the error messages
+	3. Generate ONLY resource and output blocks
+	4. DO NOT include:
+	- provider configurations
+	- terraform blocks
+	- variable declarations
+	- locals
+	5. DO NOT include any explanations or comments
+	6. DO NOT include code block markers
+
+	Output ONLY the corrected Terraform code.`,
+		originalDescription,
+		code,
+		tfError.TerraformOutput,
+		tfError.Message,
+	)
+}
+
+func generateInitialInfrastructurePrompt(description string) string {
+	return fmt.Sprintf(`You are a DevOps engineer specialized in writing Terraform code. You will receive an infrastructure-related task and must output ONLY the Terraform resource and output blocks - nothing else.
+
+	Task description:
+	%s
+
+	Requirements:
+	1. If the task is NOT related to infrastructure provisioning, return an empty response
+	2. If the task IS infrastructure-related:
+	- Generate ONLY resource and output blocks
+	- DO NOT include:
+		* provider configurations
+		* terraform blocks
+		* variable declarations
+		* locals
+		* data sources (unless specifically required)
+	- DO NOT include any explanations or comments
+	- DO NOT include code block markers (terraform)
+
+	Example task: "Create a droplet in Frankfurt region with 1GB RAM"
+	Example output:
+	resource "digitalocean_droplet" "web" {
+	name   = "web-1"
+	region = "fra1"
+	size   = "s-1vcpu-1gb"
+	image  = "ubuntu-20-04-x64"
+	}
+
+	output "droplet_ip" {
+	value = digitalocean_droplet.web.ipv4_address
+	}
+
+	Your response should contain ONLY Terraform code, nothing else.`, description)
 }
 
 func NewService(config Config) (*Service, error) {
@@ -87,59 +189,21 @@ func (s *Service) ensureContextAndWorkspace(ctx context.Context, contextName, wo
 	return nil
 }
 
-// func (s *Service) configureProviders(ctx context.Context, contextName, workspace string) error {
-// 	// Configure DigitalOcean provider
-// 	_, err := s.executorClient.AddProviders(ctx, &pb.AddProvidersRequest{
-// 		Context:   contextName,
-// 		Workspace: workspace,
-// 		Providers: []*pb.Provider{
-// 			{
-// 				Name:    "digitalocean",
-// 				Source:  "digitalocean/digitalocean",
-// 				Version: "~> 2.0",
-// 			},
-// 		},
-// 	})
-// 	return err
-// }
+func (s *Service) generateTerraformCode(ctx context.Context, description string, previousError *TerraformError, existingCode string) (string, error) {
+	var prompt string
+	if previousError != nil {
+		prompt = generateErrorPrompt(description, existingCode, previousError)
+	} else if existingCode != "" {
+		prompt = generateModificationPrompt(description, existingCode)
+	} else {
+		prompt = generateInitialInfrastructurePrompt(description)
+	}
 
-func (s *Service) generateTerraformCode(ctx context.Context, description string) (string, error) {
-	prompt := fmt.Sprintf(`You are a DevOps engineer specialized in writing Terraform code. You will receive an infrastructure-related task and must output ONLY the Terraform resource and output blocks - nothing else.
-
-Task description:
-%s
-
-Requirements:
-1. If the task is NOT related to infrastructure provisioning, return an empty response
-2. If the task IS infrastructure-related:
-   - Generate ONLY resource and output blocks
-   - DO NOT include:
-     * provider configurations
-     * terraform blocks
-     * variable declarations
-     * locals
-     * data sources (unless specifically required)
-   - DO NOT include any explanations or comments
-   - DO NOT include code block markers (``terraform or ``)
-
-Example task: "Create a droplet in Frankfurt region with 1GB RAM"
-Example output:
-resource "digitalocean_droplet" "web" {
-  name   = "web-1"
-  region = "fra1"
-  size   = "s-1vcpu-1gb"
-  image  = "ubuntu-20-04-x64"
-}
-
-output "droplet_ip" {
-  value = digitalocean_droplet.web.ipv4_address
-}
-
-Your response should contain ONLY Terraform code, nothing else.`, description)
+	log.Printf("\n=== LLM Request ===\nDescription: %s\nPrompt:\n%s\n", description, prompt)
 
 	message, err := s.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.F(anthropic.ModelClaude3_5SonnetLatest),
-		MaxTokens: anthropic.F(int64(1024)),
+		MaxTokens: anthropic.F(int64(2048)),
 		Messages: anthropic.F([]anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		}),
@@ -161,38 +225,137 @@ Your response should contain ONLY Terraform code, nothing else.`, description)
 	return code, nil
 }
 
-func (s *Service) executeTerraformAction(ctx context.Context, action, code, contextName, workspace string) (*TerraformResponse, error) {
-	// First ensure context and workspace exist
-	if err := s.ensureContextAndWorkspace(ctx, contextName, workspace); err != nil {
-		return nil, err
+func (s *Service) executeTerraformAction(ctx context.Context, action, description, code, contextName, workspace string) (*TerraformResponse, error) {
+	logger := log.New(os.Stdout, "", log.LstdFlags)
+	logSection := func(title string) {
+		logger.Printf("\n%s %s %s\n", strings.Repeat("=", 10), title, strings.Repeat("=", 10))
 	}
 
-	// Clear any existing code
-	_, err := s.executorClient.ClearCode(ctx, &pb.ClearCodeRequest{
+	retryConfig := RetryConfig{
+		MaxAttempts: 5,
+		Delay:       time.Second * 3,
+	}
+
+	logSection("Initial Configuration")
+	logger.Printf("Action: %s\nContext: %s\nWorkspace: %s", action, contextName, workspace)
+	logger.Printf("Initial Code:\n%s", code)
+
+	var lastError error
+	lastCode := code
+	var response *TerraformResponse
+
+	for attempt := 0; attempt < retryConfig.MaxAttempts; attempt++ {
+		logSection(fmt.Sprintf("Attempt %d/%d", attempt+1, retryConfig.MaxAttempts))
+
+		logSection("Workspace Preparation")
+		if err := s.prepareWorkspace(ctx, contextName, workspace, lastCode); err != nil {
+			logger.Printf("❌ Workspace preparation failed: %v", err)
+			return nil, err
+		}
+
+		if attempt > 0 && response != nil {
+			logSection("Previous Attempt Analysis")
+			logger.Printf("Output:\n%s", response.Output)
+			logger.Printf("Error:\n%s", response.Error)
+
+			tfError := s.parseTerraformError(response)
+			logger.Printf("Parsed Error:\nResource: %s", tfError.Resource)
+
+			newCode, err := s.generateTerraformCode(ctx, description, tfError, lastCode)
+			if err != nil {
+				logger.Printf("❌ Code generation failed: %v", err)
+				lastError = err
+				s.logRetryDelay(logger, retryConfig.Delay)
+				time.Sleep(retryConfig.Delay)
+				continue
+			}
+
+			logSection("Code Changes")
+			if newCode != lastCode {
+				logger.Printf("Changes detected:\nOld:\n%s\n\nNew:\n%s", lastCode, newCode)
+			} else {
+				logger.Printf("⚠️ Generated code is identical")
+			}
+			lastCode = newCode
+		}
+
+		logSection(fmt.Sprintf("Executing %s", action))
+		var err error
+		response, err = s.executeAction(ctx, action, contextName, workspace)
+		if err != nil {
+			logger.Printf("❌ Execution failed: %v", err)
+			lastError = err
+			s.logRetryDelay(logger, retryConfig.Delay)
+			time.Sleep(retryConfig.Delay)
+			continue
+		}
+
+		if response.Success && response.Error == "" {
+			logger.Printf("✅ Action successful!")
+			response.Code = lastCode
+			return response, nil
+		}
+
+		logger.Printf("❌ Attempt failed (Success=%v, Error=%s)", response.Success, response.Error)
+
+		if attempt == retryConfig.MaxAttempts-1 {
+			logger.Printf("⚠️ All retry attempts exhausted")
+			return response, nil
+		}
+
+		s.logRetryDelay(logger, retryConfig.Delay)
+		time.Sleep(retryConfig.Delay)
+	}
+
+	return response, lastError
+}
+
+func (s *Service) prepareWorkspace(ctx context.Context, contextName, workspace, code string) error {
+	if _, err := s.executorClient.ClearCode(ctx, &pb.ClearCodeRequest{
 		Context:   contextName,
 		Workspace: workspace,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to clear existing code: %v", err)
+	}); err != nil {
+		return fmt.Errorf("clear code failed: %v", err)
 	}
 
-	// // Configure providers
-	// if err := s.configureProviders(ctx, contextName, workspace); err != nil {
-	// 	return nil, fmt.Errorf("failed to configure providers: %v", err)
-	// }
+	if err := s.ensureContextAndWorkspace(ctx, contextName, workspace); err != nil {
+		return fmt.Errorf("workspace initialization failed: %v", err)
+	}
 
-	// Append new code if provided
-	if code != "" {
-		_, err = s.executorClient.AppendCode(ctx, &pb.AppendCodeRequest{
-			Context:   contextName,
-			Workspace: workspace,
-			Code:      code,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to append code: %v", err)
+	if _, err := s.executorClient.AppendCode(ctx, &pb.AppendCodeRequest{
+		Context:   contextName,
+		Workspace: workspace,
+		Code:      code,
+	}); err != nil {
+		return fmt.Errorf("append code failed: %v", err)
+	}
+
+	return nil
+}
+
+func (s *Service) parseTerraformError(response *TerraformResponse) *TerraformError {
+	tfError := &TerraformError{
+		Message:         response.Error,
+		TerraformOutput: response.Output,
+	}
+
+	if strings.Contains(response.Error, "with") {
+		lines := strings.Split(response.Error, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "with") && i+2 < len(lines) {
+				tfError.Resource = strings.TrimSpace(lines[i+2])
+				break
+			}
 		}
 	}
+	return tfError
+}
 
+func (s *Service) logRetryDelay(logger *log.Logger, delay time.Duration) {
+	logger.Printf("⏳ Waiting %v before next attempt...", delay)
+}
+
+func (s *Service) executeAction(ctx context.Context, action, contextName, workspace string) (response *TerraformResponse, err error) {
 	switch action {
 	case "plan":
 		resp, err := s.executorClient.Plan(ctx, &pb.PlanRequest{
@@ -207,7 +370,6 @@ func (s *Service) executeTerraformAction(ctx context.Context, action, code, cont
 			Output:  resp.PlanOutput,
 			Error:   resp.Error,
 		}, nil
-
 	case "apply":
 		resp, err := s.executorClient.Apply(ctx, &pb.ApplyRequest{
 			Context:   contextName,
@@ -221,7 +383,6 @@ func (s *Service) executeTerraformAction(ctx context.Context, action, code, cont
 			Output:  resp.ApplyOutput,
 			Error:   resp.Error,
 		}, nil
-
 	case "destroy":
 		resp, err := s.executorClient.Destroy(ctx, &pb.DestroyRequest{
 			Context:   contextName,
@@ -264,14 +425,24 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 	var err error
 
 	if req.Action != "destroy" {
-		code, err = s.generateTerraformCode(r.Context(), req.Description)
+		existingCode, err := s.executorClient.GetMainTf(r.Context(), &pb.GetMainTfRequest{
+			Context:   req.Context,
+			Workspace: req.Workspace,
+		})
+
+		codeContent := ""
+		if err == nil { // Если код существует
+			codeContent = existingCode.Content
+		}
+
+		code, err = s.generateTerraformCode(r.Context(), req.Description, nil, codeContent)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to generate code: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	response, err := s.executeTerraformAction(r.Context(), req.Action, code, req.Context, req.Workspace)
+	response, err := s.executeTerraformAction(r.Context(), req.Action, req.Description, code, req.Context, req.Workspace)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute terraform action: %v", err), http.StatusInternalServerError)
 		return
@@ -339,10 +510,14 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-curl -X POST http://localhost:8080/terraform \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Create digitalocean droplet with 1GB RAM in Frankfurt",
-    "context": "segovchik",
-	"workspace": "airdao",
-  }'
+
+
++ resource "digitalocean_database_cluster" "mongodb" {
+	+ database             =
+	+ engine               = "mongodb"
+	+ name                 = "alaska-mongodb"
+	+ node_count           = 1
+	+ region               = "nyc1"
+	+ size                 = "db-s-1vcpu-1gb"
+	+ version              = "4.4"
+  }

@@ -1,5 +1,0 @@
-- separate user's contexts
-- avoid hardcoding pre-infrastructure code such as main.tf to which file appened
-- add github connection including ai commiting code
-- secrets keeping
-- tokenomic
