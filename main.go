@@ -510,14 +510,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-
-
-+ resource "digitalocean_database_cluster" "mongodb" {
-	+ database             =
-	+ engine               = "mongodb"
-	+ name                 = "alaska-mongodb"
-	+ node_count           = 1
-	+ region               = "nyc1"
-	+ size                 = "db-s-1vcpu-1gb"
-	+ version              = "4.4"
-  }
