@@ -434,12 +434,17 @@ func (s *Service) handleTerraformRequest(w http.ResponseWriter, r *http.Request)
 		if err == nil { // Если код существует
 			codeContent = existingCode.Content
 		}
-
-		code, err = s.generateTerraformCode(r.Context(), req.Description, nil, codeContent)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to generate code: %v", err), http.StatusInternalServerError)
-			return
+		if !(req.Action == "apply" && req.Description == "") {
+			code, err = s.generateTerraformCode(r.Context(), req.Description, nil, codeContent)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to generate code: %v", err), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			req.Description = "Please check that code is correct"
+			code = codeContent
 		}
+
 	}
 
 	response, err := s.executeTerraformAction(r.Context(), req.Action, req.Description, code, req.Context, req.Workspace)
